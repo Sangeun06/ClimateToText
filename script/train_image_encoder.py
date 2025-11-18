@@ -467,10 +467,14 @@ def parse_args():
     p.add_argument("--climateiqa-json-path", type=str, default="", help="ClimateIQA metadata JSON path")
     p.add_argument("--climateiqa-image-root", type=str, default="", help="ClimateIQA tensor root")
     p.add_argument("--cls-loss-weight", type=float, default=0.2, help="Weight for condition classification loss in Stage 1")
-    # (추가) cls_loss_weight_start (시작 가중치)
-    p.add_argument("--cls-loss-weight-start", type=float, default=0.1, help="Epoch 1에서의 분류 손실 시작 가중치")
-    # (추가) cls_loss_warmup_epochs (워밍업 기간)
-    p.add_argument("--cls-loss-warmup-epochs", type=int, default=20, help="분류 손실 가중치가 'start'에서 'end'까지 도달하는 데 걸리는 에포크 수")
+
+    # Standalone classifier를 사용할 경우, 사용할 백본과 체크포인트 경로
+    p.add_argument("--stage1-cond-source", type=str, default="gt", choices=["gt", "pred"],
+                     help="Source of cond_ids for Encoder. 'gt' uses Ground Truth (MTL), 'pred' uses a pre-trained standalone classifier.")
+    p.add_argument("--stage1-standalone-backbone", type=str, default="efficientnet_b0",
+                     help="Backbone for the standalone classifier (if stage1_cond_source='pred')")
+    p.add_argument("--stage1-standalone-ckpt", type=str, default="/home/agi592/csh/ClimateToText/checkpoints/standalone_cls_efficientnet/standalone_classifier_efficientnet_b0_best.pt",
+                     help="Path to the pre-trained standalone classifier checkpoint (if stage1_cond_source='pred')")
     
     # Stage 1 metrics & visualization
     p.add_argument("--stage1-enable-metrics", action="store_true", help="Compute and log PSNR/SSIM & per-source MSE for Stage1")
