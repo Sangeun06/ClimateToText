@@ -31,6 +31,7 @@ from torch.utils.data import DataLoader
 
 from src.data import MultiTaskImageDataset, ImageTextPairDataset
 from src.models import PerceiverEncoder, PatchDecoder, SimpleDecoder, Stage1Classifier
+from .train_standalone_cls import StandaloneImageClassifier
 
 # Ensure 'src' package is importable when running as a script
 ROOT = Path(__file__).resolve().parent.parent
@@ -197,6 +198,40 @@ def train_stage1_mae(args, device, wandb=None) -> Path:
     # Build dataloader across sources and global condition map
     dl, cond_map = _build_stage1_dataloader(args)
 
+    # 모드에 따라 'Standalone Classifier'만 추가 로드/동결
+    if args.stage1_cond_source == "gt":
+        logging.info("Using 'gt' (Ground Truth) for cond_ids. (Standard MTL)")
+        # 'image_classifier'는 None으로 유지
+    
+    elif args.stage1_cond_source == "pred":
+        logging.info("Using 'pred' (Predicted) for cond_ids. (Noisy Condition MTL)")
+        image_classifier = StandaloneImageClassifier(
+            num_classes=len(cond_map),
+            backbone_name=args.stage1_standalone_backbone,
+        ).to(device)
+        
+        # 'pred' (Ablation) 모드: 사전학습된 가중치 로드
+        try:
+            ckpt_path = args.stage1_standalone_ckpt
+            if not Path(ckpt_path).exists():
+                 raise FileNotFoundError(f"Standalone classifier checkpoint not found: {ckpt_path}")
+            
+            image_classifier.load_state_dict(torch.load(ckpt_path, map_location=device))
+            logging.info(f"Standalone classifier weights loaded from {ckpt_path}")
+            
+        except Exception as e:
+            logging.error(f"Standalone classifier 로드 실패: {e}")
+            logging.error("먼저 'train_classifier.py'를 실행하여 모델을 훈련시켜야 합니다.")
+            raise
+        
+        # 분류기 '동결' (학습 안 함)
+        image_classifier.eval()
+        image_classifier.requires_grad_(False) 
+        # (옵티마이저 params_to_optimize에는 추가되지 않음)
+    
+    else:
+        raise ValueError(f"Unknown stage1_cond_source: {args.stage1_cond_source}")
+
     encoder = PerceiverEncoder(
         patch_size=args.perceiver_patch_size,
         latent_dim=args.latent_dim,
@@ -248,10 +283,25 @@ def train_stage1_mae(args, device, wandb=None) -> Path:
         sample_pack = {}
         for batch in tqdm(dl):
             imgs = batch["images"].to(device)
-            cond_ids = batch["cond_ids"].to(device)
+            cond_ids_gt = batch["cond_ids"].to(device) # '정답' ID
             masked = random_mask_images(imgs, mask_ratio=args.mask_ratio)
+            
+            cond_ids_for_encoder: torch.Tensor
 
-            lat = encoder(masked, return_all=encoder_return_all, cond_ids=cond_ids)
+            # 1) 'pred' 모드: 분류기를 '추론' 모드로 사용
+            if image_classifier is not None:
+                with torch.no_grad(): # 그래디언트 계산 비활성화
+                    logits_pred = image_classifier(imgs)
+                    preds = logits_pred.argmax(dim=-1)
+                
+                # ★ Encoder는 '예측된' ID를 조건으로 받음
+                cond_ids_for_encoder = preds 
+            
+            # 2) 'gt' 모드: Encoder에 '정답' ID를 조건으로 줌
+            else: 
+                cond_ids_for_encoder = cond_ids_gt
+
+            lat = encoder(masked, return_all=encoder_return_all, cond_ids=cond_ids_for_encoder)
             recon = decoder(lat)
 
             # Masked autoencoding loss
@@ -260,11 +310,11 @@ def train_stage1_mae(args, device, wandb=None) -> Path:
             # Classification loss on pooled latent
             pooled = lat.mean(dim=1) if lat.dim() == 3 else lat
             logits = classifier(pooled)
-            loss_cls = F.cross_entropy(logits, cond_ids)
+            loss_cls = F.cross_entropy(logits, cond_ids_gt)
             # accuracy
             preds = logits.argmax(dim=-1)
-            total_correct += (preds == cond_ids).sum().item()
-            total_count += cond_ids.numel()
+            total_correct += (preds == cond_ids_gt).sum().item()
+            total_count += cond_ids_gt.numel()
 
             loss = (1 - args.cls_loss_weight) * loss_recon + args.cls_loss_weight * loss_cls
 
@@ -277,9 +327,9 @@ def train_stage1_mae(args, device, wandb=None) -> Path:
             running_cls += loss_cls.item()
             # Per-source MSE (normalized space)
             with torch.no_grad():
-                unique_ids = cond_ids.unique()
+                unique_ids = cond_ids_gt.unique()
                 for uid in unique_ids:
-                    mask = cond_ids == uid
+                    mask = cond_ids_gt == uid
                     if mask.any():
                         mse_uid = F.mse_loss(recon[mask], imgs[mask], reduction='mean').item()
                         source_mse_sum[int(uid.item())] += mse_uid * mask.sum().item()
@@ -303,7 +353,7 @@ def train_stage1_mae(args, device, wandb=None) -> Path:
                         'orig': orig_unn[:K].detach().cpu(),
                         'masked': unnormalize(masked)[:K].detach().cpu(),
                         'recon': recon_unn[:K].detach().cpu(),
-                        'cond_ids': cond_ids[:K].detach().cpu(),
+                        'cond_ids': cond_ids_gt[:K].detach().cpu(),
                     }
                     sample_logged = True
         avg_total = running / max(1, len(dl))
@@ -417,6 +467,11 @@ def parse_args():
     p.add_argument("--climateiqa-json-path", type=str, default="", help="ClimateIQA metadata JSON path")
     p.add_argument("--climateiqa-image-root", type=str, default="", help="ClimateIQA tensor root")
     p.add_argument("--cls-loss-weight", type=float, default=0.2, help="Weight for condition classification loss in Stage 1")
+    # (추가) cls_loss_weight_start (시작 가중치)
+    p.add_argument("--cls-loss-weight-start", type=float, default=0.1, help="Epoch 1에서의 분류 손실 시작 가중치")
+    # (추가) cls_loss_warmup_epochs (워밍업 기간)
+    p.add_argument("--cls-loss-warmup-epochs", type=int, default=20, help="분류 손실 가중치가 'start'에서 'end'까지 도달하는 데 걸리는 에포크 수")
+    
     # Stage 1 metrics & visualization
     p.add_argument("--stage1-enable-metrics", action="store_true", help="Compute and log PSNR/SSIM & per-source MSE for Stage1")
     p.add_argument("--stage1-log-images", type=int, default=4, help="Number of reconstruction sample triplets (orig/masked/recon) to log per epoch (0 = disable)")
