@@ -6,6 +6,47 @@ import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import torchvision.models as models
+
+
+class ResNetEncoder(nn.Module):
+    def __init__(self, pretrained=True, output_dim=768):
+        super().__init__()
+
+        # 1. 사전학습된 ResNet-50 로드
+        # (weights=models.ResNet50_Weights.IMAGENET1K_V1 과 동일)
+        resnet = models.resnet50(pretrained=pretrained)
+
+        # 2. ResNet의 마지막 FC 레이어와 Pooling 레이어 제거
+        #    (공간 정보를 유지하기 위해 layer4까지만 사용)
+        self.backbone = nn.Sequential(
+            resnet.conv1, resnet.bn1, resnet.relu, resnet.maxpool,
+            resnet.layer1,
+            resnet.layer2,
+            resnet.layer3,
+            resnet.layer4
+        )
+
+        # 3. ResNet-50의 출력 채널(2048)을 우리가 원하는 latent_dim(예: 768)으로 맞춤
+        self.proj = nn.Linear(2048, output_dim)
+        self.output_dim = output_dim
+
+    def forward(self, x):
+        # x: (B, 3, 224, 224)
+
+        # 1. Backbone 통과 -> 특징 맵 추출
+        # 출력: (B, 2048, 7, 7) (224x224 입력 시)
+        features = self.backbone(x)
+
+        # 2. Flatten & Permute (Transformer/Decoder 입력 형태로 변환)
+        # (B, 2048, 7, 7) -> (B, 2048, 49) -> (B, 49, 2048)
+        features = features.flatten(2).transpose(1, 2)
+
+        # 3. 차원 축소 (2048 -> 768)
+        # (B, 49, 768)
+        latents = self.proj(features)
+
+        return latents # (B, L=49, D=768)
 
 
 ## Image 전처리: 이미지를 패치로 나누고, 1차원 시퀀스로 펼침

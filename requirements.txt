@@ -13,3 +13,7 @@ gdown
 transformers
 accelerate
 bitsandbytes
+click>=8.0.1
+pydantic<3
+pytz
+six
