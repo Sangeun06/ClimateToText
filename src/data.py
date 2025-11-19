@@ -89,8 +89,10 @@ class MultiTaskImageDataset(Dataset):
         climateiqa_json_path: Optional[str] = None,
         climateiqa_image_root: Optional[str] = None,
         image_size: int = 224,
+        weatherqa_include_types: Optional[List[str]] = None,
     ) -> None:
         super().__init__()
+        types = []
 
         self.transform = get_default_image_transform(size=image_size)
         self.tensor_transform = get_default_tensor_transform(size=image_size)
@@ -127,6 +129,11 @@ class MultiTaskImageDataset(Dataset):
                                 continue
                         full = image_root / p
                         tname = Path(p).parent.name
+                        types.append(f"wqa:{tname}")
+                        # 특정 종류 이미지만 처리
+                        if weatherqa_include_types is not None:
+                            if tname not in weatherqa_include_types:
+                                continue
                         if full.exists() and tname:
                             self.items.append(("image", full, f"wqa:{tname}"))
                 weatherqa_record_cnt = len(self.items)
@@ -195,8 +202,7 @@ class MultiTaskImageDataset(Dataset):
             logging.warning("MultiTaskImageDataset: 수집된 이미지가 없습니다.")
 
         # 전역 type_map 구축
-        cond_names = sorted({rec[-1] for rec in self.items})
-        self.type_map: dict[str, int] = {n: i for i, n in enumerate(cond_names)}
+        self.type_map: dict[str, int] = {n: i for i, n in enumerate(sorted(set(types)))}
 
     def __len__(self) -> int:
         return len(self.items)

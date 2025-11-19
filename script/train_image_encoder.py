@@ -169,6 +169,7 @@ def _build_stage1_dataloader(args) -> tuple[DataLoader, Dict[str, int]]:
         raise ValueError("No valid stage1 sources specified. Use --stage1-sources (weatherqa,imagefolder,chatearthnet,climateiqa) and related paths.")
 
     pretrain_years = [int(y) for y in args.pretrain_years.split(",")] if args.pretrain_years else None
+    weatherqa_types = [t for t in args.weatherqa_include_types.split(",") if t] if args.weatherqa_include_types else None
     ds = MultiTaskImageDataset(
         weatherqa_json_path=str(ROOT / args.weatherqa_json_path) if use_wqa else None,
         weatherqa_image_root=str(ROOT / args.weatherqa_image_dir) if use_wqa else None,
@@ -178,6 +179,7 @@ def _build_stage1_dataloader(args) -> tuple[DataLoader, Dict[str, int]]:
         climateiqa_json_path=args.climateiqa_json_path if use_era5 else None,
         climateiqa_image_root=args.climateiqa_image_root if use_era5 else None,
         image_size=args.image_size,
+        weatherqa_include_types=weatherqa_types
     )
     ds_preprocessed = ImageTextPairDataset(
         weatherqa_json_path=str(ROOT / args.weatherqa_json_path) if use_wqa else None,
@@ -445,6 +447,7 @@ def parse_args():
     # 데이터 (WeatherQA)
     p.add_argument("--weatherqa-json-path", type=str, default="data/WeatherQA/dataset_2014-2020.json")
     p.add_argument("--weatherqa-image-dir", type=str, default="data/WeatherQA/WeatherQA_MD_2014-2019")
+    p.add_argument("--weatherqa-include-types", type=str, default="", help="Comma-separated WeatherQA condition types to include (default: all)")
 
     # Perceiver 설정
     p.add_argument("--latent-dim", type=int, default=768)
