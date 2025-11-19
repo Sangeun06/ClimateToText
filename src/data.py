@@ -1,4 +1,5 @@
 import torch
+import torch.nn.functional as F
 from torch.utils.data import Dataset
 from abc import ABC, abstractmethod
 from pathlib import Path

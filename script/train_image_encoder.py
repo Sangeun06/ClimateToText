@@ -235,15 +235,35 @@ def train_stage1_mae(args, device, wandb=None) -> Path:
     else:
         raise ValueError(f"Unknown stage1_cond_source: {args.stage1_cond_source}")
 
-    encoder = PerceiverEncoder(
-        patch_size=args.perceiver_patch_size,
-        latent_dim=args.latent_dim,
-        num_latents=args.perceiver_num_latents,
-        num_blocks=args.perceiver_num_blocks,
-        num_heads=args.perceiver_num_heads,
-        moe_num_experts=args.moe_num_experts,
-        num_conditions=len(cond_map),
-    ).to(device)
+    # ResNet 기반 encoder 사용
+    if args.encoder_mode == "resnet":
+        from src.models import ResNetEncoder
+        encoder = ResNetEncoder(
+            pretrained=True,
+            output_dim=args.latent_dim
+        ).to(device)
+    elif args.encoder_mode == "perceiver":
+        encoder = PerceiverEncoder(
+            patch_size=args.perceiver_patch_size,
+            latent_dim=args.latent_dim,
+            num_latents=args.perceiver_num_latents,
+            num_blocks=args.perceiver_num_blocks,
+            num_heads=args.perceiver_num_heads,
+            moe_num_experts=args.moe_num_experts,
+            num_conditions=len(cond_map),
+        ).to(device)
+    elif args.encoder_mode == "perceiver_patch_mae":
+        from src.models import ConditionalPerceiverEncoder
+        encoder = ConditionalPerceiverEncoder(
+            num_types=len(cond_map),
+            patch_size=args.perceiver_patch_size,
+            latent_dim=args.latent_dim,
+            num_latents=args.perceiver_num_latents,
+            num_blocks=args.perceiver_num_blocks,
+            num_heads=args.perceiver_num_heads,
+            moe_num_experts=args.moe_num_experts
+        ).to(device)
+
     # 디코더 선택: patch 모드면 모든 latent를 사용해 패치 재조합, pooled 모드면 전역 벡터 복원
     if args.decoder_mode == "patch":
         decoder = PatchDecoder(
@@ -266,7 +286,11 @@ def train_stage1_mae(args, device, wandb=None) -> Path:
 
     # Inverse map for per-source logging
     inv_cond_map = {v: k for k, v in cond_map.items()}
+
     for epoch in range(1, args.stage1_epochs + 1):
+        cls_answer_cnt = 0
+        cls_total_cnt = 0
+
         logging.info(f"Epoch {epoch}/{args.stage1_epochs}, {len(dl)} batches")
         encoder.train(); decoder.train(); classifier.train()
         running = 0.0
@@ -303,12 +327,20 @@ def train_stage1_mae(args, device, wandb=None) -> Path:
             # 2) 'gt' 모드: Encoder에 '정답' ID를 조건으로 줌
             else: 
                 cond_ids_for_encoder = cond_ids_gt
+            cls_answer_cnt += (cond_ids_for_encoder == cond_ids_gt).sum().item()
+            cls_total_cnt += cond_ids_gt.numel()
 
-            lat = encoder(masked, return_all=encoder_return_all, cond_ids=cond_ids_for_encoder)
+            if args.encoder_mode == "resnet":
+                lat = encoder(masked)
+            elif args.encoder_mode == "perceiver_patch_mae":
+                lat, _, _ = encoder(masked, type_ids=cond_ids_for_encoder, keep_ratio=(1 - args.mask_ratio))
+            else:
+                lat = encoder(masked, return_all=encoder_return_all, cond_ids=cond_ids_for_encoder)
             recon = decoder(lat)
 
             # Masked autoencoding loss
-            loss_recon = F.mse_loss(recon, imgs)
+            #loss_recon = F.mse_loss(recon, imgs)
+            loss_recon = F.l1_loss(recon, imgs)
 
             # Classification loss on pooled latent
             pooled = lat.mean(dim=1) if lat.dim() == 3 else lat
@@ -319,10 +351,16 @@ def train_stage1_mae(args, device, wandb=None) -> Path:
             total_correct += (preds == cond_ids_gt).sum().item()
             total_count += cond_ids_gt.numel()
 
-            loss = (1 - args.cls_loss_weight) * loss_recon + args.cls_loss_weight * loss_cls
+            new_cls_loss_weight = args.cls_loss_weight
+            if args.enable_cls_weight_control:
+                # 3 epoch 이후부터 분류 손실 가중치 조정
+                if epoch >= 3:
+                    new_cls_loss_weight = args.cls_loss_weight + (args.cls_weight_control * (epoch - 3))
+            loss = (1 - new_cls_loss_weight) * loss_recon + new_cls_loss_weight * loss_cls
 
             optim.zero_grad()
             loss.backward()
+            torch.nn.utils.clip_grad_norm_(params, max_norm=1.0)
             optim.step()
 
             running += loss.item()
@@ -382,6 +420,7 @@ def train_stage1_mae(args, device, wandb=None) -> Path:
             logging.info(f"[Stage1][Epoch {epoch}] PSNR: {psnr_val:.2f} dB | SSIM: {ssim_val_epoch:.4f}")
         if per_source_mse:
             logging.info("[Stage1] Per-source MSE: " + ", ".join([f"{k}:{v:.4f}" for k,v in per_source_mse.items()]))
+        logging.info(f"[Stage1] Condition prediction accuracy this epoch: {cls_answer_cnt}/{cls_total_cnt} = {cls_answer_cnt/ max(1,cls_total_cnt):.4f}")
         if wandb is not None:
             wandb.log({
                 "stage": 1,
@@ -463,6 +502,7 @@ def parse_args():
     p.add_argument("--stage1-lr", type=float, default=1e-4)
     p.add_argument("--mask-ratio", type=float, default=0.5)
     p.add_argument("--pretrain-years", type=str, default="2019,2020,2021,2022,2023,2024")
+    p.add_argument("--encoder-mode", type=str, default="perceiver", choices=["perceiver", "perceiver_patch_mae", "resnet"], help="Stage1 인코더 유형")
     p.add_argument("--decoder-mode", type=str, default="pooled", choices=["pooled", "patch"], help="Stage1 디코더 유형: pooled는 전역 벡터 복원, patch는 모든 latent로 패치 재조합")
     p.add_argument("--stage1-sources", type=str, default="weatherqa", help="Comma-separated sources: weatherqa,imagefolder,chatearthnet,climateiqa")
     p.add_argument("--imagefolder-root", type=str, default="", help="Root path for generic imagefolder source")
@@ -479,7 +519,10 @@ def parse_args():
                      help="Backbone for the standalone classifier (if stage1_cond_source='pred')")
     p.add_argument("--stage1-standalone-ckpt", type=str, default="/home/agi592/csh/ClimateToText/checkpoints/standalone_cls_efficientnet/standalone_classifier_efficientnet_b0_best.pt",
                      help="Path to the pre-trained standalone classifier checkpoint (if stage1_cond_source='pred')")
-    
+
+    p.add_argument("--enable-cls-weight-control", action="store_true", help="Enable dynamic weight control for classification loss")
+    p.add_argument("--cls-weight-control", type=float, default=0.05, help="Weight control for preventing exploration of classification loss")
+
     # Stage 1 metrics & visualization
     p.add_argument("--stage1-enable-metrics", action="store_true", help="Compute and log PSNR/SSIM & per-source MSE for Stage1")
     p.add_argument("--stage1-log-images", type=int, default=4, help="Number of reconstruction sample triplets (orig/masked/recon) to log per epoch (0 = disable)")
