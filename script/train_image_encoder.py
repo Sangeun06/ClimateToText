@@ -199,6 +199,7 @@ def train_stage1_mae(args, device, wandb=None) -> Path:
     logging.info("[Stage 1] MAE 사전학습 시작")
     # Build dataloader across sources and global condition map
     dl, cond_map = _build_stage1_dataloader(args)
+    image_classifier: Optional[StandaloneImageClassifier] = None
 
     # 모드에 따라 'Standalone Classifier'만 추가 로드/동결
     if args.stage1_cond_source == "gt":
