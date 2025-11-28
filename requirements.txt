@@ -13,3 +13,17 @@ gdown
 transformers
 accelerate
 bitsandbytes
+click>=8.0.1
+pydantic<3
+pytz
+six
+nvidia-cusparse-cu12
+nvidia-cublas-cu12
+nvidia-cuda-runtime-cu12
+google-generativeai
+Pillow
+scikit-learn
+matplotlib
+peft
+sentencepiece
+sentence_transformers

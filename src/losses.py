@@ -61,6 +61,14 @@ def masked_language_loss(
     return loss.sum() / denominator
 
 
+def compute_mae_recon_loss(predictions_rgb, targets_rgb):
+    """
+    PerceiverQueryDecoder의 출력과 타겟 픽셀 간의 L1 Loss 계산
+    """
+    # L1 Loss를 사용하여 선명도 개선 시도 (L2(MSE) 대신)
+    return F.l1_loss(predictions_rgb, targets_rgb)
+
+
 @dataclass
 class LossOutputs:
     total_loss: torch.Tensor
