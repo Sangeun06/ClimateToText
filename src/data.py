@@ -35,7 +35,7 @@ def tensor_loader(path: Path) -> torch.Tensor:
             data = torch.load(path, map_location="cpu")
         else:
             raise ValueError(f"지원하지 않는 텐서 확장자: {ext}")
-        
+
         return torch.from_numpy(data).float() if isinstance(data, np.ndarray) else data.float()
     except Exception as e:
         logging.warning(f"텐서 로드 실패 {path}: {e}. 빈 텐서 반환.")
@@ -89,6 +89,8 @@ class MultiTaskImageDataset(Dataset):
         chatearthnet_image_root: Optional[str] = None,
         climateiqa_json_path: Optional[str] = None,
         climateiqa_image_root: Optional[str] = None,
+        extra_json_path: Optional[str] = None,
+        extra_image_root: Optional[str] = None,
         image_size: int = 224,
         weatherqa_include_types: Optional[List[str]] = None,
     ) -> None:
@@ -100,6 +102,7 @@ class MultiTaskImageDataset(Dataset):
         # items: heterogeneous records
         # ('image', path, cond_name) OR ('era5_channel', path, channel_index, cond_name)
         self.items: list[tuple] = []
+        self.weatherqa_include_types = weatherqa_include_types
 
         # 1. WeatherQA 소스 수집
         weatherqa_record_cnt = 0
@@ -121,7 +124,7 @@ class MultiTaskImageDataset(Dataset):
                             except Exception:
                                 pass
                     return None
-                
+
                 for rec in (data.values() if isinstance(data, dict) else data):
                     for p in rec.get("para_paths", []):
                         if weatherqa_years is not None:
@@ -132,8 +135,8 @@ class MultiTaskImageDataset(Dataset):
                         tname = Path(p).parent.name
                         types.append(f"wqa:{tname}")
                         # 특정 종류 이미지만 처리
-                        if weatherqa_include_types is not None:
-                            if tname not in weatherqa_include_types:
+                        if self.weatherqa_include_types is not None:
+                            if tname not in self.weatherqa_include_types:
                                 continue
                         if full.exists() and tname:
                             self.items.append(("image", full, f"wqa:{tname}"))
@@ -199,11 +202,36 @@ class MultiTaskImageDataset(Dataset):
             except Exception as e:
                 logging.warning(f"MultiTaskImageDataset ClimateIQA 로드 실패: {e}")
 
+        # 4. 추가 이미지-텍스트 페어 소스 수집
+        if extra_json_path and extra_image_root:
+            try:
+                with open(extra_json_path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                image_root = Path(extra_image_root)
+                for rec in (data.values() if isinstance(data, dict) else data):
+                    img_path = rec.get("image") # 이미지는 절대 경로
+                    type_key = rec.get("cond_name", "extra:unknown")
+                    if not img_path:
+                        continue
+                    full = Path(img_path)
+                    types.append(type_key)
+                    if full.exists():
+                        self.items.append(("image", full, type_key))
+                logging.info(f"추가 데이터 로드 완료: {len(self.items) - (climateiqa_record_cnt + chatearthnet_record_cnt + weatherqa_record_cnt)} 레코드")
+            except Exception as e:
+                logging.warning(f"MultiTaskImageDataset 추가 데이터 로드 실패: {e}")
+
         if not self.items:
             logging.warning("MultiTaskImageDataset: 수집된 이미지가 없습니다.")
 
         # 전역 type_map 구축
         self.type_map: dict[str, int] = {n: i for i, n in enumerate(sorted(set(types)))}
+        # 더미 타입 추가
+        for i in range(20 - len(self.type_map)):
+            __spec__ = f"dummy_type_{i}"
+            if __spec__ not in self.type_map:
+                self.type_map[__spec__] = i + len(self.type_map)
+        logging.info(f"총 {len(self.type_map)} 조건 타입이 구축되었습니다.")
 
     def __len__(self) -> int:
         return len(self.items)
@@ -244,6 +272,28 @@ class MultiTaskImageDataset(Dataset):
 
         cond_id = self.type_map.get(cond_name, 0)
         return {"image": img, "cond_id": cond_id, "cond_name": cond_name}
+
+    def load_data_items(self, load_path: str) -> None:
+        """JSON 파일에서 데이터 항목을 로드합니다."""
+        try:
+            with open(load_path, "r", encoding="utf-8") as f:
+                data_loaded = json.load(f)
+
+            self.items = []
+            for entry in data_loaded:
+                # 특정 종류 이미지만 처리
+                tname = entry["cond_name"].split(":")[-1]
+                if self.weatherqa_include_types is not None:
+                    if tname not in self.weatherqa_include_types:
+                        continue
+                image_path = Path(entry["image"])
+                cond_name = entry["cond_name"]
+                self.items.append(("image", image_path, cond_name))
+
+            logging.info(f"{load_path}에서 데이터 항목이 로드되었습니다. 총 {len(self.items)} 항목.")
+
+        except Exception as e:
+            logging.error(f"데이터 항목 로드 실패 {load_path}: {e}")
 
 class ImageTextPairDataset(Dataset):
     """
@@ -354,10 +404,10 @@ class ImageTextPairDataset(Dataset):
         except Exception as e:
             logging.warning(f"이미지 로드 실패 {path}: {e}. 0 텐서 대체.")
             img = torch.zeros(3, 224, 224, dtype=torch.float32)
-        
+
         cond_id = self.type_map.get(cond_name, 0)
         return {"image": img, "cond_id": cond_id, "cond_name": cond_name}
-    
+
     def save_data_items(self, save_path: str) -> None:
         """수집된 데이터 항목을 JSON 파일로 저장합니다."""
         try:
@@ -386,16 +436,16 @@ class ImageTextPairDataset(Dataset):
         try:
             with open(load_path, "r", encoding="utf-8") as f:
                 data_loaded = json.load(f)
-            
+
             self.items = []
             for entry in data_loaded:
                 image_path = Path(entry["image"])
                 annotation = entry["annotation"]
                 cond_name = entry["cond_name"]
                 self.items.append((image_path, annotation, cond_name))
-            
+
             logging.info(f"{load_path}에서 데이터 항목이 로드되었습니다. 총 {len(self.items)} 항목.")
-        
+
         except Exception as e:
             logging.error(f"데이터 항목 로드 실패 {load_path}: {e}")
 
