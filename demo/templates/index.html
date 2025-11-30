@@ -1,0 +1,1445 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Deep Weather Insight</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #f5f5f5;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 15px 30px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+
+        .header h1 {
+            font-size: 1.8em;
+            margin: 0;
+            cursor: pointer;
+            transition: opacity 0.3s;
+        }
+
+        .header h1:hover {
+            opacity: 0.8;
+        }
+
+        .main-container {
+            display: flex;
+            height: calc(100vh - 70px);
+            gap: 0;
+        }
+
+        .left-panel {
+            flex: 2;
+            display: flex;
+            flex-direction: column;
+            background: white;
+            border-right: 2px solid #e0e0e0;
+        }
+
+        .datetime-control {
+            padding: 20px;
+            background: #f8f9fa;
+            border-bottom: 2px solid #e0e0e0;
+        }
+
+        .datetime-control label {
+            display: block;
+            font-weight: bold;
+            margin-bottom: 8px;
+            color: #333;
+        }
+
+        .datetime-inputs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 15px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .datetime-inputs select {
+            padding: 10px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 14px;
+            background: white;
+            cursor: pointer;
+        }
+
+        .datetime-inputs select:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .data-source-buttons {
+            display: flex;
+            gap: 10px;
+            margin-top: 15px;
+        }
+
+        .data-source-btn {
+            flex: 1;
+            padding: 10px 20px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            background: white;
+            color: #999;
+            font-weight: bold;
+            cursor: not-allowed;
+            transition: all 0.3s;
+        }
+
+        .data-source-btn.available {
+            border-color: #667eea;
+            color: #667eea;
+            cursor: pointer;
+        }
+
+        .data-source-btn.available:hover {
+            background: #f0f0ff;
+        }
+
+        .data-source-btn.active {
+            background: #667eea;
+            color: white;
+            border-color: #667eea;
+        }
+
+        .data-source-btn:disabled {
+            cursor: not-allowed;
+            opacity: 0.5;
+        }
+
+        #map {
+            flex: 1;
+            width: 100%;
+        }
+
+        .map-info {
+            padding: 10px 20px;
+            background: #fff9e6;
+            border-top: 2px solid #ffd700;
+            font-size: 0.9em;
+            color: #666;
+        }
+
+        .leaflet-popup-content {
+            margin: 10px;
+            font-size: 14px;
+        }
+
+        .right-panel {
+            flex: 1;
+            background: white;
+            overflow-y: auto;
+            padding: 30px;
+        }
+
+        .right-panel h2 {
+            color: #667eea;
+            margin-bottom: 20px;
+            font-size: 1.5em;
+        }
+
+        .query-form {
+            margin-bottom: 30px;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-group label {
+            display: block;
+            font-weight: bold;
+            margin-bottom: 8px;
+            color: #333;
+        }
+
+        textarea {
+            width: 100%;
+            padding: 15px;
+            border: 2px solid #e0e0e0;
+            border-radius: 10px;
+            font-size: 16px;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            resize: vertical;
+            min-height: 100px;
+            transition: border-color 0.3s;
+        }
+
+        textarea:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .selected-info {
+            background: #e8eaf6;
+            padding: 15px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            font-size: 0.9em;
+        }
+
+        .selected-info div {
+            margin: 5px 0;
+            color: #555;
+        }
+
+        .selected-info strong {
+            color: #667eea;
+        }
+
+        .info-label {
+            font-weight: bold;
+            color: #667eea;
+            margin-right: 5px;
+        }
+
+        button {
+            width: 100%;
+            padding: 15px 30px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 10px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        button:active {
+            transform: translateY(0);
+        }
+
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .result-box {
+            background: #f8f9fa;
+            border-radius: 15px;
+            padding: 25px;
+            border-left: 5px solid #667eea;
+            animation: fadeIn 0.5s;
+            margin-top: 20px;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .result-header {
+            margin-bottom: 15px;
+        }
+
+        .query-text {
+            font-weight: bold;
+            color: #333;
+            font-size: 1.1em;
+            margin-bottom: 10px;
+        }
+
+        .confidence {
+            background: #667eea;
+            color: white;
+            padding: 5px 15px;
+            border-radius: 20px;
+            font-size: 0.9em;
+            display: inline-block;
+            margin-bottom: 10px;
+        }
+
+        .response-text {
+            color: #555;
+            line-height: 1.6;
+            font-size: 1.05em;
+            margin-bottom: 15px;
+        }
+
+        .result-metadata {
+            background: #fff;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 15px;
+            font-size: 0.9em;
+        }
+
+        .result-metadata div {
+            margin: 5px 0;
+            color: #666;
+        }
+
+        .timestamp {
+            color: #999;
+            font-size: 0.9em;
+            text-align: right;
+        }
+
+        /* Modal styles */
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            overflow: auto;
+            background-color: rgba(0,0,0,0.8);
+            animation: fadeIn 0.3s;
+        }
+
+        .modal-content {
+            background-color: #fefefe;
+            margin: 2% auto;
+            padding: 30px;
+            border-radius: 15px;
+            width: 95%;
+            max-width: 1400px;
+            max-height: 90vh;
+            overflow-y: auto;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+            animation: slideIn 0.3s;
+        }
+
+        @keyframes slideIn {
+            from {
+                transform: translateY(-50px);
+                opacity: 0;
+            }
+            to {
+                transform: translateY(0);
+                opacity: 1;
+            }
+        }
+
+        .modal-close {
+            color: #aaa;
+            float: right;
+            font-size: 32px;
+            font-weight: bold;
+            cursor: pointer;
+            line-height: 1;
+            transition: color 0.3s;
+        }
+
+        .modal-close:hover,
+        .modal-close:focus {
+            color: #667eea;
+        }
+
+        .modal-header {
+            border-bottom: 2px solid #e0e0e0;
+            padding-bottom: 15px;
+            margin-bottom: 20px;
+        }
+
+        .modal-header h2 {
+            margin: 0;
+            color: #667eea;
+            font-size: 1.5em;
+        }
+
+        .modal-body {
+            padding: 20px 0;
+        }
+
+        .modal-image {
+            width: 100%;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+        }
+
+        .modal-metadata {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            font-size: 0.95em;
+        }
+
+        .modal-metadata div {
+            margin: 8px 0;
+            color: #555;
+        }
+
+        .modal-question {
+            background: #e8eaf6;
+            padding: 15px;
+            border-radius: 10px;
+            margin-bottom: 15px;
+            font-weight: bold;
+            color: #333;
+            font-size: 1.1em;
+        }
+
+        .modal-answer {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            border-left: 4px solid #667eea;
+            line-height: 1.8;
+            color: #444;
+            font-size: 1.05em;
+        }
+
+        .result-box {
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        .result-box:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(102, 126, 234, 0.3);
+        }
+
+        /* Loading overlay */
+        .loading-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.7);
+            z-index: 9999;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .loading-overlay.active {
+            display: flex;
+        }
+
+        .loading-content {
+            background: white;
+            padding: 40px;
+            border-radius: 20px;
+            text-align: center;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+        }
+
+        .loading-spinner {
+            width: 60px;
+            height: 60px;
+            border: 5px solid #f3f3f3;
+            border-top: 5px solid #667eea;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 20px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .loading-text {
+            color: #333;
+            font-size: 1.2em;
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+
+        .loading-subtext {
+            color: #666;
+            font-size: 0.9em;
+        }
+
+        /* Chain of thought collapsible */
+        .thinking-section {
+            margin-top: 20px;
+            border-top: 2px solid #e0e0e0;
+            padding-top: 20px;
+        }
+
+        .thinking-toggle {
+            cursor: pointer;
+            padding: 12px 15px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            transition: background 0.3s;
+            user-select: none;
+        }
+
+        .thinking-toggle:hover {
+            background: #e8eaf6;
+        }
+
+        .thinking-toggle-icon {
+            font-size: 1.2em;
+            transition: transform 0.3s;
+            color: #667eea;
+        }
+
+        .thinking-toggle-icon.expanded {
+            transform: rotate(90deg);
+        }
+
+        .thinking-toggle-text {
+            font-weight: bold;
+            color: #667eea;
+        }
+
+        .thinking-content {
+            display: none;
+            margin-top: 15px;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            border-left: 4px solid #667eea;
+            font-family: monospace;
+            font-size: 0.9em;
+            line-height: 1.6;
+            color: #555;
+            white-space: pre-wrap;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+
+        .thinking-content.show {
+            display: block;
+        }
+
+        .examples {
+            margin-top: 30px;
+            padding-top: 20px;
+            border-top: 2px solid #e0e0e0;
+        }
+
+        .examples h3 {
+            color: #667eea;
+            margin-bottom: 10px;
+            font-size: 1.1em;
+        }
+
+        .example-queries {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+
+        .example-tag {
+            background: #e8eaf6;
+            color: #667eea;
+            padding: 8px 15px;
+            border-radius: 20px;
+            font-size: 0.9em;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+
+        .example-tag:hover {
+            background: #667eea;
+            color: white;
+        }
+
+        /* WeatherQA Images Grid */
+        .weatherqa-section {
+            margin-top: 25px;
+            padding-top: 25px;
+            border-top: 2px solid #e0e0e0;
+        }
+
+        .weatherqa-title {
+            font-size: 1.3em;
+            font-weight: bold;
+            color: #333;
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .weatherqa-count {
+            background: #667eea;
+            color: white;
+            padding: 4px 12px;
+            border-radius: 15px;
+            font-size: 0.8em;
+        }
+
+        .weatherqa-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 12px;
+            margin-top: 15px;
+        }
+
+        .weatherqa-item {
+            background: white;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            overflow: hidden;
+            transition: all 0.3s;
+            cursor: pointer;
+        }
+
+        .weatherqa-item:hover {
+            border-color: #667eea;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+        }
+
+        .weatherqa-img {
+            width: 100%;
+            height: 140px;
+            object-fit: cover;
+            background: #f5f5f5;
+        }
+
+        .weatherqa-label {
+            padding: 8px;
+            text-align: center;
+            font-size: 0.8em;
+            color: #666;
+            background: #f8f9fa;
+            font-weight: 500;
+        }
+
+        .weatherqa-type {
+            display: block;
+            font-weight: bold;
+            color: #333;
+            margin-bottom: 2px;
+            font-size: 0.9em;
+        }
+
+        .weatherqa-desc {
+            font-size: 0.7em;
+            color: #999;
+            line-height: 1.3;
+        }
+
+        .weatherqa-generated {
+            padding: 8px;
+            font-size: 0.75em;
+            color: #444;
+            background: #fff8e1;
+            border-top: 1px solid #ffe082;
+            line-height: 1.4;
+            max-height: 160px;
+            overflow-y: auto;
+            text-align: left;
+        }
+
+        .weatherqa-generated::-webkit-scrollbar {
+            width: 4px;
+        }
+
+        .weatherqa-generated::-webkit-scrollbar-thumb {
+            background: #ffe082;
+            border-radius: 2px;
+        }
+
+        @media (max-width: 1024px) {
+            .main-container {
+                flex-direction: column;
+            }
+
+            .left-panel {
+                flex: 1;
+                border-right: none;
+                border-bottom: 2px solid #e0e0e0;
+            }
+
+            .right-panel {
+                flex: 1;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Loading Overlay -->
+    <div class="loading-overlay" id="loadingOverlay">
+        <div class="loading-content">
+            <div class="loading-spinner"></div>
+            <div class="loading-text">🌤️ Analyzing Weather...</div>
+            <div class="loading-subtext">Analyzing MODIS satellite imagery.</div>
+        </div>
+    </div>
+
+    <div class="header">
+        <h1 onclick="window.location.href='/'">🌤️ Deep Weather Insight</h1>
+    </div>
+
+    <div class="main-container">
+        <!-- Left Panel: Map -->
+        <div class="left-panel">
+            <div class="datetime-control">
+                <label>📅 Select Date and Time</label>
+                <div class="datetime-inputs">
+                    <select id="year" name="year">
+                        <option value="">Year</option>
+                    </select>
+                    <select id="month" name="month">
+                        <option value="">Month</option>
+                    </select>
+                    <select id="day" name="day">
+                        <option value="">Day</option>
+                    </select>
+                    <select id="hour" name="hour">
+                        <option value="">Hour</option>
+                    </select>
+                </div>
+
+                <div class="data-source-buttons">
+                    <button type="button" class="data-source-btn" id="modisBtn" data-source="modis" disabled>
+                        📊 MODIS
+                    </button>
+                    <button type="button" class="data-source-btn" id="cli2textBtn" data-source="cli2text" disabled>
+                        🌐 ClimateToText
+                    </button>
+                </div>
+            </div>
+
+            <div id="map"></div>
+
+            <div class="map-info">
+                📍 Click on the map to select a point of interest. Pinpoint is optional.
+            </div>
+        </div>
+
+        <!-- Right Panel: Query Form -->
+        <div class="right-panel">
+            <h2>💬 Ask Weather Questions</h2>
+
+            <div class="selected-info" id="selectedInfo">
+                <div><strong>Selected Time:</strong> <span id="datetimeText">Please select date/time</span></div>
+                <div><strong>Data Source:</strong> <span id="sourceText">Please select source</span></div>
+                <div><strong>Map Area:</strong> <span id="boundsText">-</span></div>
+                <div><strong>Pinpoint:</strong> <span id="pinpointText">None (optional)</span></div>
+            </div>
+
+            <form method="post" action="http://143.248.136.95:8000/predict" class="query-form" id="queryForm">
+                <input type="hidden" name="bounds" id="boundsInput">
+                <input type="hidden" name="pinpoint" id="pinpointInput">
+                <input type="hidden" name="datetime" id="datetimeInput">
+                <input type="hidden" name="source" id="sourceInput">
+
+                <div class="form-group">
+                    <label for="query">Enter your question</label>
+                    <textarea 
+                        name="query" 
+                        id="query"
+                        placeholder="e.g., What is the precipitation in this area?"
+                        required
+                    >{% if result %}{{ result.query }}{% else %}{{"Describe the weather conditions in this region."}}{% endif %}</textarea>
+                </div>
+
+                <button type="submit" id="submitBtn">Submit Question</button>
+            </form>
+
+            {% if result %}
+            <div class="result-box" id="resultBox" onclick="openResultModal()">
+                <div class="result-header">
+                    <div class="query-text">📝 {{ result.query }}</div>
+                    <span class="confidence">New answer</span>
+                </div>
+
+                <div class="result-metadata">
+                    <div><span class="info-label">📅 Time:</span> {{ result.datetime_formatted }}</div>
+                    <div><span class="info-label">📊 Data Source:</span> {{ result.source }}</div>
+                    <div><span class="info-label">🗺️ Map Area (XYXY):</span> {{ result.bounds_xyxy }}</div>
+                    {% if result.pinpoint %}
+                    <div><span class="info-label">📍 Pinpoint:</span> {{ result.pinpoint_formatted }}</div>
+                    {% endif %}
+                </div>
+
+                <div class="response-text">
+                    💬 {{ result.response }}
+                </div>
+                <div class="timestamp">
+                    ⏰ {{ result.timestamp }}
+                </div>
+                <div style="text-align: center; margin-top: 15px; color: #667eea; font-size: 0.9em;">
+                    🖱️ Click for details
+                </div>
+            </div>
+
+            <!-- Modal for detailed view -->
+            <div id="resultModal" class="modal">
+                <div class="modal-content">
+                    <span class="modal-close" onclick="closeResultModal()">&times;</span>
+                    <div class="modal-header">
+                        <h2>🌤️ Weather Analysis Results</h2>
+                    </div>
+                    <div class="modal-body">
+                        {% if result.image_path %}
+                        <img src="/assets/{{ result.image_path.split('/')[-1] }}" alt="Generated MODIS Image" class="modal-image">
+                        {% endif %}
+                        
+                        <div class="modal-metadata">
+                            <div><span class="info-label">📅 Analysis Time:</span> {{ result.datetime_formatted }}</div>
+                            <div><span class="info-label">📊 Data Source:</span> {{ result.source }}</div>
+                            <div><span class="info-label">🗺️ Map Area (XYXY):</span> {{ result.bounds_xyxy }}</div>
+                            {% if result.pinpoint %}
+                            <div><span class="info-label">📍 Pinpoint:</span> {{ result.pinpoint_formatted }}</div>
+                            {% endif %}
+                            <div><span class="info-label">⏰ Generated At:</span> {{ result.timestamp }}</div>
+                        </div>
+
+                        <div class="modal-question">
+                            📝 Question: {{ result.query }}
+                        </div>
+
+                        <div class="modal-answer">
+                            {% if result.has_summary %}
+                            <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 15px; border-radius: 8px; margin-bottom: 20px;">
+                                <div style="font-weight: bold; font-size: 1.1em; margin-bottom: 8px;">🌐 Comprehensive Analysis Result</div>
+                                <div style="line-height: 1.6;">{{ result.response }}</div>
+                            </div>
+                            {% else %}
+                            💬 {{ result.response }}
+                            {% endif %}
+                        </div>
+
+                        {% if result.modis_response %}
+                        <div class="weatherqa-section" style="margin-top: 20px;">
+                            <div class="weatherqa-title">
+                                <span>🛰️ MODIS Satellite Image Analysis</span>
+                            </div>
+                            <div style="background: white; border: 2px solid #e0e0e0; border-radius: 8px; padding: 15px; margin-top: 10px;">
+                                <div style="color: #444; line-height: 1.6;">{{ result.modis_response }}</div>
+                            </div>
+                        </div>
+                        {% endif %}
+
+                        {% if result.summary_thinking %}
+                        <div class="thinking-section">
+                            <div class="thinking-toggle" onclick="toggleThinking()">
+                                <span class="thinking-toggle-icon" id="thinkingIcon">&gt;</span>
+                                <span class="thinking-toggle-text">🧠 Comprehensive Analysis Chain of Thought</span>
+                            </div>
+                            <div class="thinking-content" id="thinkingContent">{{ result.summary_thinking }}</div>
+                        </div>
+                        {% elif result.thinking %}
+                        <div class="thinking-section">
+                            <div class="thinking-toggle" onclick="toggleThinking()">
+                                <span class="thinking-toggle-icon" id="thinkingIcon">&gt;</span>
+                                <span class="thinking-toggle-text">🧠 Chain of Thought</span>
+                            </div>
+                            <div class="thinking-content" id="thinkingContent">{{ result.thinking }}</div>
+                        </div>
+                        {% endif %}
+
+                        {% if result.weatherqa_images %}
+                        <div class="weatherqa-section" style="margin-top: 20px;">
+                            <div class="weatherqa-title">
+                                <span>🌡️ WeatherQA Weather Parameter Analysis</span>
+                                <span class="weatherqa-count">{{ result.weatherqa_images|length }} items</span>
+                            </div>
+                            <div class="weatherqa-grid">
+                                {% for img in result.weatherqa_images %}
+                                <div class="weatherqa-item" onclick="window.open('{{ img.url }}', '_blank')">
+                                    <img class="weatherqa-img" src="{{ img.url }}" alt="{{ img.type }}" loading="lazy">
+                                    <div class="weatherqa-label">
+                                        <span class="weatherqa-type">{{ img.type }}</span>
+                                        <span class="weatherqa-desc">{{ img.description }}</span>
+                                    </div>
+                                    {% if img.generated %}
+                                    <div class="weatherqa-generated">
+                                        {{ img.generated }}
+                                    </div>
+                                    {% endif %}
+                                </div>
+                                {% endfor %}
+                            </div>
+                        </div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+
+            <div class="examples">
+                <h3>🎯 WeatherQA Sample Data</h3>
+                <div class="example-queries">
+                    <span class="example-tag" onclick="setSampleDateTime('2020-01-10', 22)">2020/01/10 22:00</span>
+                    <span class="example-tag" onclick="setSampleDateTime('2020-04-20', 10)">2020/04/20 10:00</span>
+                    <span class="example-tag" onclick="setSampleDateTime('2020-07-11', 14)">2020/07/11 14:00</span>
+                    <span class="example-tag" onclick="setSampleDateTime('2020-08-23', 22)">2020/08/23 22:00</span>
+                    <span class="example-tag" onclick="setSampleDateTime('2020-11-10', 14)">2020/11/10 14:00</span>
+                    <span class="example-tag" onclick="setSampleDateTime('2020-12-31', 13)">2020/12/31 13:00</span>
+                </div>
+                <p style="font-size: 0.85em; color: #666; margin-top: 10px;">
+                    💡 These timeframes have both MODIS satellite data and WeatherQA weather parameters available (afternoon hours)
+                </p>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script>
+        // API Base URL configuration
+        const API_BASE_URL = 'http://143.248.136.95:8000';
+        
+        // Initialize datetime selectors
+        const yearSelect = document.getElementById('year');
+        const monthSelect = document.getElementById('month');
+        const daySelect = document.getElementById('day');
+        const hourSelect = document.getElementById('hour');
+
+        // Populate year (2014-2025)
+        for (let year = 2014; year <= 2025; year++) {
+            const option = document.createElement('option');
+            option.value = year;
+            option.textContent = year;
+            yearSelect.appendChild(option);
+        }
+
+        // Populate month (1-12)
+        for (let month = 1; month <= 12; month++) {
+            const option = document.createElement('option');
+            option.value = month.toString().padStart(2, '0');
+            option.textContent = month;
+            monthSelect.appendChild(option);
+        }
+
+        // Populate day (1-31)
+        for (let day = 1; day <= 31; day++) {
+            const option = document.createElement('option');
+            option.value = day.toString().padStart(2, '0');
+            option.textContent = day;
+            daySelect.appendChild(option);
+        }
+
+        // Populate hour (0-23)
+        for (let hour = 0; hour <= 23; hour++) {
+            const option = document.createElement('option');
+            option.value = hour.toString().padStart(2, '0');
+            option.textContent = hour + ':00';
+            hourSelect.appendChild(option);
+        }
+
+        // Set current datetime as default
+        const now = new Date();
+        yearSelect.value = now.getFullYear();
+        monthSelect.value = (now.getMonth() + 1).toString().padStart(2, '0');
+        daySelect.value = now.getDate().toString().padStart(2, '0');
+        hourSelect.value = now.getHours().toString().padStart(2, '0');
+
+        // Initialize map
+        const map = L.map('map').setView([37.5665, 126.9780], 7); // Seoul, South Korea
+
+        // Add tile layer
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '© OpenStreetMap contributors',
+            maxZoom: 18,
+        }).addTo(map);
+
+        // Pinpoint marker
+        let currentMarker = null;
+        let currentPinpoint = null;
+
+        // Check if point is inside USA bounds
+        function isInsideUSABounds(lat, lng) {
+            return lat >= USA_BOUNDS.south && lat <= USA_BOUNDS.north &&
+                   lng >= USA_BOUNDS.west && lng <= USA_BOUNDS.east;
+        }
+
+        // Handle map click for pinpoint
+        map.on('click', function(e) {
+            // If Cli2Text is selected, only allow clicks inside USA bounds
+            if (selectedSources.has('cli2text')) {
+                if (!isInsideUSABounds(e.latlng.lat, e.latlng.lng)) {
+                    alert('⚠️ Cli2Text only allows pinpoint selection within the continental USA.');
+                    return;
+                }
+            }
+            
+            // Remove previous marker
+            if (currentMarker) {
+                map.removeLayer(currentMarker);
+            }
+            
+            // Add new marker
+            currentMarker = L.marker(e.latlng, {
+                icon: L.icon({
+                    iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-red.png',
+                    shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
+                    iconSize: [25, 41],
+                    iconAnchor: [12, 41],
+                    popupAnchor: [1, -34],
+                    shadowSize: [41, 41]
+                })
+            }).addTo(map);
+            
+            currentPinpoint = {
+                lat: e.latlng.lat.toFixed(4),
+                lng: e.latlng.lng.toFixed(4)
+            };
+            
+            currentMarker.bindPopup(`📍 Selected Point<br>Latitude: ${currentPinpoint.lat}°<br>Longitude: ${currentPinpoint.lng}°`).openPopup();
+            
+            updateSelectedInfo();
+        });
+
+        // Double click map to remove pinpoint
+        map.on('dblclick', function(e) {
+            e.originalEvent.preventDefault();
+            if (currentMarker) {
+                map.removeLayer(currentMarker);
+                currentMarker = null;
+                currentPinpoint = null;
+                updateSelectedInfo();
+            }
+        });
+
+        // Data source state (now supports multiple selections)
+        let selectedSources = new Set();
+        const modisBtn = document.getElementById('modisBtn');
+        const cli2textBtn = document.getElementById('cli2textBtn');
+        
+        // Continental USA bounds
+        const USA_BOUNDS = {
+            west: -125.0,
+            south: 24.0,
+            east: -66.0,
+            north: 49.0
+        };
+        
+        // USA bounds rectangle overlay
+        let usaBoundsRect = null;
+        let usaMaskLayer = null;
+
+        // Show/hide USA bounds rectangle with mask effect
+        function toggleUSABoundsOverlay(show) {
+            if (show) {
+                if (!usaMaskLayer) {
+                    // Create a polygon that covers the whole world except USA bounds
+                    // This creates a "cutout" effect
+                    const worldBounds = [
+                        [-90, -180],
+                        [90, -180],
+                        [90, 180],
+                        [-90, 180],
+                        [-90, -180]
+                    ];
+                    
+                    const usaCutout = [
+                        [USA_BOUNDS.south, USA_BOUNDS.west],
+                        [USA_BOUNDS.north, USA_BOUNDS.west],
+                        [USA_BOUNDS.north, USA_BOUNDS.east],
+                        [USA_BOUNDS.south, USA_BOUNDS.east],
+                        [USA_BOUNDS.south, USA_BOUNDS.west]
+                    ];
+                    
+                    // Create polygon with hole (world minus USA)
+                    usaMaskLayer = L.polygon([worldBounds, usaCutout], {
+                        color: 'transparent',
+                        fillColor: '#000000',
+                        fillOpacity: 0.5,
+                        interactive: false
+                    }).addTo(map);
+                    
+                    // Add border around USA
+                    usaBoundsRect = L.rectangle([
+                        [USA_BOUNDS.south, USA_BOUNDS.west],
+                        [USA_BOUNDS.north, USA_BOUNDS.east]
+                    ], {
+                        color: '#667eea',
+                        weight: 3,
+                        fill: false,
+                        dashArray: '10, 5'
+                    }).addTo(map);
+                    usaBoundsRect.bindPopup('🇺🇸 Cli2Text Region (Continental USA)');
+                }
+            } else {
+                if (usaMaskLayer) {
+                    map.removeLayer(usaMaskLayer);
+                    usaMaskLayer = null;
+                }
+                if (usaBoundsRect) {
+                    map.removeLayer(usaBoundsRect);
+                    usaBoundsRect = null;
+                }
+            }
+        }
+
+        // Toggle data source buttons
+        function setupDataSourceButtons() {
+            [modisBtn, cli2textBtn].forEach(btn => {
+                btn.addEventListener('click', function() {
+                    if (!this.classList.contains('available')) return;
+                    
+                    const source = this.dataset.source;
+                    
+                    if (this.classList.contains('active')) {
+                        // Deselect
+                        this.classList.remove('active');
+                        selectedSources.delete(source);
+                    } else {
+                        // Select (allow multiple)
+                        this.classList.add('active');
+                        selectedSources.add(source);
+                    }
+                    
+                    // If Cli2Text is selected, fix map to USA bounds and show overlay
+                    if (selectedSources.has('cli2text')) {
+                        map.fitBounds([
+                            [USA_BOUNDS.south, USA_BOUNDS.west],
+                            [USA_BOUNDS.north, USA_BOUNDS.east]
+                        ]);
+                        toggleUSABoundsOverlay(true);
+                    } else {
+                        toggleUSABoundsOverlay(false);
+                    }
+                    
+                    updateSelectedInfo();
+                });
+            });
+        }
+
+        setupDataSourceButtons();
+
+        // Check data availability when datetime changes
+        async function checkDataAvailability() {
+            const year = yearSelect.value;
+            const month = monthSelect.value;
+            const day = daySelect.value;
+            const hour = hourSelect.value;
+
+            if (!year || !month || !day || !hour) {
+                modisBtn.classList.remove('available', 'active');
+                cli2textBtn.classList.remove('available', 'active');
+                modisBtn.disabled = true;
+                cli2textBtn.disabled = true;
+                selectedSources.clear();
+                updateSelectedInfo();
+                return;
+            }
+
+            const datetime = year.slice(-2) + month + day + hour;
+
+            try {
+                const response = await fetch(`${API_BASE_URL}/api/check_availability?datetime=${datetime}`);
+                const data = await response.json();
+
+                // Update MODIS button
+                if (data.modis_available) {
+                    modisBtn.classList.add('available');
+                    modisBtn.disabled = false;
+                } else {
+                    modisBtn.classList.remove('available', 'active');
+                    modisBtn.disabled = true;
+                    selectedSources.delete('modis');
+                }
+
+                // Update Cli2Text button
+                if (data.cli2text_available) {
+                    cli2textBtn.classList.add('available');
+                    cli2textBtn.disabled = false;
+                } else {
+                    cli2textBtn.classList.remove('available', 'active');
+                    cli2textBtn.disabled = true;
+                    selectedSources.delete('cli2text');
+                }
+
+                updateSelectedInfo();
+            } catch (error) {
+                console.error('Error checking availability:', error);
+            }
+        }
+
+        // Attach datetime change listeners
+        [yearSelect, monthSelect, daySelect, hourSelect].forEach(select => {
+            select.addEventListener('change', checkDataAvailability);
+        });
+
+        // Get map bounds in XYXY format (adjusted to be square)
+        function getMapBounds() {
+            const bounds = map.getBounds();
+            let west = bounds.getWest();
+            let south = bounds.getSouth();
+            let east = bounds.getEast();
+            let north = bounds.getNorth();
+            
+            // Calculate width and height in degrees
+            const width = east - west;
+            const height = north - south;
+            
+            // Adjust to make it square (use the larger dimension)
+            if (width > height) {
+                // Expand height to match width
+                const diff = (width - height) / 2;
+                south -= diff;
+                north += diff;
+            } else if (height > width) {
+                // Expand width to match height
+                const diff = (height - width) / 2;
+                west -= diff;
+                east += diff;
+            }
+            
+            return {
+                west: west.toFixed(4),
+                south: south.toFixed(4),
+                east: east.toFixed(4),
+                north: north.toFixed(4)
+            };
+        }
+
+        // Update map bounds on move/zoom
+        map.on('moveend zoomend', updateSelectedInfo);
+
+        // Update selected info display
+        function updateSelectedInfo() {
+            const year = yearSelect.value;
+            const month = monthSelect.value;
+            const day = daySelect.value;
+            const hour = hourSelect.value;
+            
+            // Update datetime display
+            if (year && month && day && hour) {
+                document.getElementById('datetimeText').textContent = 
+                    `${year}-${month}-${day} ${hour}:00`;
+                const datetime = year.slice(-2) + month + day + hour;
+                document.getElementById('datetimeInput').value = datetime;
+            } else {
+                document.getElementById('datetimeText').textContent = 'Please select date/time';
+                document.getElementById('datetimeInput').value = '';
+            }
+
+            // Update source display
+            if (selectedSources.size > 0) {
+                const sourceNames = Array.from(selectedSources).map(s => s === 'modis' ? 'MODIS' : 'Cli2Text').join(', ');
+                document.getElementById('sourceText').textContent = sourceNames;
+                document.getElementById('sourceInput').value = Array.from(selectedSources).join(',');
+            } else {
+                document.getElementById('sourceText').textContent = 'Please select source';
+                document.getElementById('sourceInput').value = '';
+            }
+
+            // Update bounds display (use USA bounds if Cli2Text is selected)
+            let bounds;
+            if (selectedSources.has('cli2text')) {
+                bounds = USA_BOUNDS;
+            } else {
+                bounds = getMapBounds();
+            }
+            document.getElementById('boundsText').textContent = 
+                `X: [${bounds.west}, ${bounds.east}], Y: [${bounds.south}, ${bounds.north}]`;
+            document.getElementById('boundsInput').value = JSON.stringify(bounds);
+
+            // Update pinpoint display
+            if (currentPinpoint) {
+                document.getElementById('pinpointText').textContent = 
+                    `Lat: ${currentPinpoint.lat}°, Lon: ${currentPinpoint.lng}°`;
+                document.getElementById('pinpointInput').value = JSON.stringify(currentPinpoint);
+            } else {
+                document.getElementById('pinpointText').textContent = 'None (optional)';
+                document.getElementById('pinpointInput').value = '';
+            }
+        }
+
+        // Validate form submission
+        document.getElementById('queryForm').addEventListener('submit', function(e) {
+            const datetime = document.getElementById('datetimeInput').value;
+            if (!datetime || datetime.length !== 8) {
+                e.preventDefault();
+                alert('Please select all date/time fields!');
+                return false;
+            }
+
+            if (selectedSources.size === 0) {
+                e.preventDefault();
+                alert('Please select at least one data source (MODIS or Cli2Text)!');
+                return false;
+            }
+
+            // Show loading overlay
+            showLoading();
+        });
+
+        // Helper function for example queries
+        function setQuery(query) {
+            document.getElementById('query').value = query;
+        }
+
+        // Helper function to set sample WeatherQA datetime
+        function setSampleDateTime(dateStr, hour) {
+            // dateStr format: 'YYYY-MM-DD'
+            const parts = dateStr.split('-');
+            const year = parts[0];
+            const month = parts[1];
+            const day = parts[2];
+            
+            // Set selectors (use full year: 2019)
+            yearSelect.value = year;
+            monthSelect.value = month;
+            daySelect.value = day;
+            hourSelect.value = hour.toString().padStart(2, '0');
+            
+            // Update availability
+            checkDataAvailability();
+            
+            // Scroll to map
+            document.querySelector('.left-panel').scrollIntoView({ behavior: 'smooth' });
+        }
+
+        // Loading overlay functions
+        function showLoading() {
+            document.getElementById('loadingOverlay').classList.add('active');
+        }
+
+        function hideLoading() {
+            document.getElementById('loadingOverlay').classList.remove('active');
+        }
+
+        // Toggle thinking section
+        function toggleThinking() {
+            const content = document.getElementById('thinkingContent');
+            const icon = document.getElementById('thinkingIcon');
+            
+            if (content.classList.contains('show')) {
+                content.classList.remove('show');
+                icon.classList.remove('expanded');
+            } else {
+                content.classList.add('show');
+                icon.classList.add('expanded');
+            }
+        }
+
+        // Modal functions
+        function openResultModal() {
+            document.getElementById('resultModal').style.display = 'block';
+            document.body.style.overflow = 'hidden';
+        }
+
+        function closeResultModal() {
+            document.getElementById('resultModal').style.display = 'none';
+            document.body.style.overflow = 'auto';
+        }
+
+        // Close modal when clicking outside
+        window.onclick = function(event) {
+            const modal = document.getElementById('resultModal');
+            if (event.target == modal) {
+                closeResultModal();
+            }
+        }
+
+        // Close modal with ESC key
+        document.addEventListener('keydown', function(event) {
+            if (event.key === 'Escape') {
+                closeResultModal();
+            }
+        });
+
+        // Initialize
+        checkDataAvailability();
+        updateSelectedInfo();
+
+        {% if result %}
+        // Restore previous state after form submission
+        try {
+            // Restore datetime
+            {% if result.datetime %}
+            const datetime = '{{ result.datetime }}';
+            if (datetime.length === 8) {
+                yearSelect.value = '20' + datetime.substring(0, 2);
+                monthSelect.value = datetime.substring(2, 4);
+                daySelect.value = datetime.substring(4, 6);
+                hourSelect.value = datetime.substring(6, 8);
+            }
+            {% endif %}
+            
+            // Restore data sources
+            {% if result.source %}
+            const sources = '{{ result.source }}'.toLowerCase().split(',');
+            sources.forEach(source => {
+                const trimmedSource = source.trim();
+                if (trimmedSource === 'modis') {
+                    selectedSources.add('modis');
+                    modisBtn.classList.add('active');
+                } else if (trimmedSource === 'cli2text') {
+                    selectedSources.add('cli2text');
+                    cli2textBtn.classList.add('active');
+                }
+            });
+            
+            // Show USA bounds overlay if Cli2Text is selected
+            if (selectedSources.has('cli2text')) {
+                toggleUSABoundsOverlay(true);
+            }
+            {% endif %}
+            
+            // Restore map view if not using Cli2Text
+            {% if result.bounds and not (result.source and 'cli2text' in result.source.lower()) %}
+            const bounds = {{ result.bounds | tojson }};
+            map.fitBounds([
+                [parseFloat(bounds.south), parseFloat(bounds.west)],
+                [parseFloat(bounds.north), parseFloat(bounds.east)]
+            ]);
+            {% endif %}
+            
+            // If Cli2Text was selected, fit to USA bounds
+            if (selectedSources.has('cli2text')) {
+                map.fitBounds([
+                    [USA_BOUNDS_ZOOMED.south, USA_BOUNDS_ZOOMED.west],
+                    [USA_BOUNDS_ZOOMED.north, USA_BOUNDS_ZOOMED.east]
+                ]);
+            }
+            
+            // Restore pinpoint
+            {% if result.pinpoint %}
+            const pinpoint = {{ result.pinpoint | tojson }};
+            currentMarker = L.marker([parseFloat(pinpoint.lat), parseFloat(pinpoint.lng)], {
+                icon: L.icon({
+                    iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-red.png',
+                    shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
+                    iconSize: [25, 41],
+                    iconAnchor: [12, 41],
+                    popupAnchor: [1, -34],
+                    shadowSize: [41, 41]
+                })
+            }).addTo(map);
+            currentPinpoint = pinpoint;
+            {% endif %}
+            
+            // Re-check availability and update info
+            checkDataAvailability();
+            updateSelectedInfo();
+        } catch (e) {
+            console.error('Error restoring state:', e);
+        }
+        {% endif %}
+    </script>
+</body>
+</html>
